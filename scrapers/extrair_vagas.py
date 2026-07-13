@@ -1,21 +1,24 @@
+# bibliotecas 
 import argparse
 import json
 import re
 import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
-
 import pandas as pd
 from bs4 import BeautifulSoup
 
 
+# pastas onde os arquivos html estão salvos
 PASTAS_PADRAO = [
     Path("/home/lucas/scraper-linkedin/htmls-Brasil-Hibrido"),
     Path("/home/lucas/scraper-linkedin/htmls-Brasil-Presencial"),
     Path("/home/lucas/scraper-linkedin/htmls-Brasil-Remoto"),
 ]
+# caminho salvar o csv final
 SAIDA_PADRAO = Path("/home/lucas/scraper-linkedin/vagas_extraidas.csv")
 
+# dicio pra identificar linguagens de programação mencionadas nas vagas usando regex
 LINGUAGENS = {
     "Python": [r"\bpython\b"],
     "R": [r"(?<!\w)R(?!\w)", r"\blinguagem R\b"],
@@ -38,6 +41,7 @@ LINGUAGENS = {
     "Shell/Bash": [r"\bbash\b", r"\bshell script\b"],
 }
 
+# dicionário de ferramentas e habilidades técnicas procuradas nas vagas
 SKILLS = {
     "AWS": [r"\baws\b", r"amazon web services"],
     "Azure": [r"\bazure\b"],
@@ -87,6 +91,7 @@ SKILLS = {
     "SAP": [r"\bsap\b"],
 }
 
+# dicio mapeando benefícios corporativos
 BENEFICIOS = {
     "Vale-alimentação": [
         r"\bvale[\s-]+alimenta[cç][aã]o\b",
@@ -155,6 +160,7 @@ BENEFICIOS = {
     "Pet": [r"\bpetlove\b", r"\bplano de sa[uú]de pet\b", r"\bbenef[ií]cio pet\b"],
 }
 
+# palavras comuns usadas para iniciar seções de requisitos
 INICIOS_REQUISITOS = (
     "requisitos",
     "qualificacoes",
@@ -167,6 +173,7 @@ INICIOS_REQUISITOS = (
     "quem buscamos",
     "perfil desejado",
 )
+# palavras comuns para seções de diferenciais
 INICIOS_DESEJAVEIS = (
     "diferenciais",
     "desejavel",
@@ -176,6 +183,7 @@ INICIOS_DESEJAVEIS = (
     "sera um diferencial",
     "será um diferencial",
 )
+# palavras comuns para seções de benefícios
 INICIOS_BENEFICIOS = (
     "beneficios",
     "benefícios",
@@ -185,6 +193,7 @@ INICIOS_BENEFICIOS = (
     "benefits",
     "perks",
 )
+# combinando possíveis títulos de seções para facilitar a busca no texto
 TITULOS_SECAO = INICIOS_REQUISITOS + INICIOS_DESEJAVEIS + INICIOS_BENEFICIOS + (
     "responsabilidades",
     "atribuicoes",
@@ -202,6 +211,7 @@ TITULOS_SECAO = INICIOS_REQUISITOS + INICIOS_DESEJAVEIS + INICIOS_BENEFICIOS + (
 
 
 def sem_acentos(texto):
+    # remove acentos e marcas de uma string para padronizar as buscas
     return "".join(
         caractere
         for caractere in unicodedata.normalize("NFD", texto or "")
@@ -210,10 +220,12 @@ def sem_acentos(texto):
 
 
 def limpar_texto(texto):
+    # substitui quebras de linha e múltiplos espaços por um espaço simples
     return re.sub(r"\s+", " ", texto or "").strip()
 
 
 def primeiro_texto(container, seletores):
+    # tenta encontrar e retornar o primeiro texto válido passando por uma lista de seletores css
     for seletor in seletores:
         elemento = container.select_one(seletor)
         if elemento:
@@ -224,6 +236,7 @@ def primeiro_texto(container, seletores):
 
 
 def extrair_lista(texto, catalogo):
+    # vasculha o texto usando as expressões regulares de um dicionário e retorna o que encontrou
     encontrados = []
     for nome, padroes in catalogo.items():
         if any(re.search(padrao, texto, flags=re.IGNORECASE) for padrao in padroes):
@@ -232,6 +245,7 @@ def extrair_lista(texto, catalogo):
 
 
 def eh_titulo_secao(linha):
+    # verifica se uma linha isolada é um título de seção baseado nos padrões 
     normalizada = sem_acentos(linha).lower().strip(" :-")
     return len(normalizada) <= 90 and any(
         normalizada.startswith(sem_acentos(titulo).lower()) for titulo in TITULOS_SECAO
@@ -239,6 +253,7 @@ def eh_titulo_secao(linha):
 
 
 def extrair_secao(linhas, inicios, max_linhas=30):
+    # varre as linhas do texto e recorta o conteúdo de uma seção específica até achar outro título
     for indice, linha in enumerate(linhas):
         normalizada = sem_acentos(linha).lower().strip(" :-")
         if not any(normalizada.startswith(sem_acentos(inicio).lower()) for inicio in inicios):
@@ -255,6 +270,7 @@ def extrair_secao(linhas, inicios, max_linhas=30):
 
 
 def inferir_nivel(titulo, descricao):
+    # tenta descobrir a senioridade ou nível do cargo olhando o título e a descrição da vaga
     texto_titulo = sem_acentos(titulo).lower()
     texto_descricao = sem_acentos(descricao).lower()
     niveis = [
@@ -268,12 +284,14 @@ def inferir_nivel(titulo, descricao):
         ("Diretoria", [r"\bdiretor", r"\bdirector\b"]),
     ]
 
+    # verifica primeiro se o nível está explícito no título
     encontrados_titulo = [
         nivel for nivel, padroes in niveis if any(re.search(p, texto_titulo) for p in padroes)
     ]
     if encontrados_titulo:
         return ", ".join(encontrados_titulo)
 
+    # caso não ache no título tenta buscar dentro do texto da descrição
     for nivel, padroes in niveis:
         for padrao in padroes:
             if re.search(rf"\b(?:nivel|senioridade|vaga)\s*(?:de|:|-)?\s*{padrao}", texto_descricao):
@@ -282,6 +300,7 @@ def inferir_nivel(titulo, descricao):
 
 
 def extrair_salario(texto):
+    # busca por padrões financeiros que possam indicar a faixa salarial da vaga
     padroes = [
         r"R\$\s*[\d.]+(?:,\d{2})?(?:\s*(?:a|até|-)\s*R?\$?\s*[\d.]+(?:,\d{2})?)?",
         r"(?:BRL|USD)\s*[\d.,]+(?:\s*(?:a|até|-)\s*(?:BRL|USD)?\s*[\d.,]+)?",
@@ -290,19 +309,24 @@ def extrair_salario(texto):
     encontrados = []
     for padrao in padroes:
         encontrados.extend(re.findall(padrao, texto, flags=re.IGNORECASE))
+    # limpa as strings e descarta resultados falsos como salário zero
     encontrados = [limpar_texto(x) for x in encontrados if "r$ 0" not in x.lower()]
     return " | ".join(dict.fromkeys(encontrados[:3])) or None
 
 
 def calcular_data_publicacao(texto_relativo, data_coleta):
+    # converte textos relativos de tempo do linkedin em uma data estimada de publicação real
     if not texto_relativo:
         return None
     texto = sem_acentos(texto_relativo).lower()
+    # lida com termos recentes indicando que foi publicado no mesmo dia da coleta
     if "hoje" in texto or "hora" in texto or "minuto" in texto:
         data = data_coleta
+    # subtrai um dia se o texto disser ontem
     elif "ontem" in texto:
         data = data_coleta - timedelta(days=1)
     else:
+        # tenta extrair o número de dias, semanas ou meses para fazer o recuo da data
         numero = int(re.search(r"\d+", texto).group()) if re.search(r"\d+", texto) else 1
         if "dia" in texto:
             data = data_coleta - timedelta(days=numero)
@@ -316,14 +340,18 @@ def calcular_data_publicacao(texto_relativo, data_coleta):
 
 
 def separar_localizacao(local, modalidade):
+    # reorganiza o local e a abrangência dependendo de a vaga ser totalmente remota
     if sem_acentos(modalidade).lower() == "remoto":
         return "Remoto", local
     return local, None
 
 
 def extrair_vaga(caminho, modalidade_pasta):
+    # lê o arquivo html e ignora possíveis erros de caracteres estranhos
     html = caminho.read_text(encoding="utf-8", errors="ignore")
+    # cria o objeto de parser usando a biblioteca beautifulsoup
     soup = BeautifulSoup(html, "lxml")
+    # localiza o conteiner principal da vaga ou faz fallbackpara a estrutura geral do html
     container = (
         soup.select_one(".job-view-layout.jobs-details")
         or soup.select_one(".jobs-details")
@@ -331,6 +359,7 @@ def extrair_vaga(caminho, modalidade_pasta):
         or soup
     )
 
+    # tenta capturar o título da vaga testando vários seletores possíveis
     titulo = primeiro_texto(
         container,
         [
@@ -339,33 +368,41 @@ def extrair_vaga(caminho, modalidade_pasta):
             "h1",
         ],
     )
+    # extrai o nome da empresa
     empresa = primeiro_texto(
         container,
         [".job-details-jobs-unified-top-card__company-name", "a[href*='/company/']"],
     )
+    # localiza o box com o corpo da descrição da vaga
     descricao_el = container.select_one("#job-details")
     descricao = limpar_texto(descricao_el.get_text(" ", strip=True)) if descricao_el else None
+    # cria uma lista com todas as strings extraídas, linha a linha, para facilitar o parser de seções
     linhas_descricao = (
         [limpar_texto(x) for x in descricao_el.stripped_strings if limpar_texto(x)]
         if descricao_el
         else []
     )
 
+    # procura o link da vaga para extrair o código de identificação do linkedin
     link_vaga = container.select_one(".job-details-jobs-unified-top-card__job-title a[href*='/jobs/view/']")
     job_id = None
     if link_vaga:
         match = re.search(r"/jobs/view/(\d+)", link_vaga.get("href", ""))
         job_id = match.group(1) if match else None
+    # se falhar, tenta achar o identificador urn diretamente no código fonte da página
     if not job_id:
         match = re.search(r"urn:li:fsd_jobPosting:(\d+)", html)
         job_id = match.group(1) if match else None
 
+    # extrai as informações contextuais que ficam logo abaixo do título
     topo = primeiro_texto(
         container,
         [".job-details-jobs-unified-top-card__tertiary-description-container"],
     )
+    # quebra o texto pelo caractere especial usado no cabeçalho do linkedin
     partes_topo = [limpar_texto(x) for x in re.split(r"\s*·\s*", topo or "") if limpar_texto(x)]
     local = partes_topo[0] if partes_topo else None
+    # filtra a parte do texto que fala sobre o tempo de publicação
     publicado_ha = next(
         (
             p
@@ -375,14 +412,17 @@ def extrair_vaga(caminho, modalidade_pasta):
         None,
     )
 
+    # coleta as tags de preferência, como modelo de trabalho e tipo de contratação
     preferencias = [
         limpar_texto(x.get_text(" ", strip=True))
         for x in container.select(".job-details-fit-level-preferences button")
     ]
+    # descobre se a vaga é remota, presencial ou híbrida através das tags ou usa o nome da pasta como backup
     modalidade = next(
         (x for x in preferencias if sem_acentos(x).lower() in {"remoto", "hibrido", "presencial"}),
         modalidade_pasta,
     )
+    # procura pelo tipo de contrato de trabalho buscando por palavras-chave predefinidas
     tipo_contrato = next(
         (
             x
@@ -395,14 +435,18 @@ def extrair_vaga(caminho, modalidade_pasta):
         None,
     )
 
+    # junta o título e a descrição em um texto único para buscar as skills requeridas
     texto_analise = f"{titulo or ''}\n{descricao or ''}"
     linguagens = extrair_lista(texto_analise, LINGUAGENS)
     skills = list(dict.fromkeys(linguagens + extrair_lista(texto_analise, SKILLS)))
     beneficios = extrair_lista(descricao or "", BENEFICIOS)
+    # tenta capturar o bloco de texto específico de benefícios dentro da descrição
     beneficios_texto = extrair_secao(linhas_descricao, INICIOS_BENEFICIOS, max_linhas=40)
     local_trabalho, abrangencia_remota = separar_localizacao(local, modalidade)
+    # registra o momento exato em que o arquivo html foi modificado pela última vez (data do scrape)
     data_coleta = datetime.fromtimestamp(caminho.stat().st_mtime)
 
+    # agrupa todas as informações extraídas num dicionário bem formatado
     return {
         "job_id": job_id,
         "arquivo": caminho.name,
@@ -431,6 +475,7 @@ def extrair_vaga(caminho, modalidade_pasta):
 
 
 def modalidade_da_pasta(pasta):
+    # deduz a modalidade de trabalho observando se o nome da pasta contém as palavras remotas ou híbridas
     nome = sem_acentos(pasta.name).lower()
     for modalidade in ("Híbrido", "Presencial", "Remoto"):
         if sem_acentos(modalidade).lower() in nome:
@@ -439,44 +484,56 @@ def modalidade_da_pasta(pasta):
 
 
 def main():
+    # inicia o parser de argumentos para rodar o script pelo terminal
     parser = argparse.ArgumentParser(description="Extrai dados das vagas salvas em HTML.")
     parser.add_argument("pastas", nargs="*", type=Path, default=PASTAS_PADRAO)
     parser.add_argument("--saida", type=Path, default=SAIDA_PADRAO)
     args = parser.parse_args()
 
+    # coleta todos os caminhos de arquivos html contidos nas pastas alvo
     arquivos = []
     for pasta in args.pastas:
         arquivos.extend((html, modalidade_da_pasta(pasta)) for html in sorted(pasta.glob("*.html")))
 
+    # avisa no console que o processo vai começar
     print(f"Processando {len(arquivos)} HTMLs...", flush=True)
     registros = []
     erros = []
+    # itera pelos arquivos e aplica o extrator em cada um deles, registrando qualquer erro
     for indice, (arquivo, modalidade) in enumerate(arquivos, start=1):
         try:
             registros.append(extrair_vaga(arquivo, modalidade))
         except Exception as erro:
             erros.append({"arquivo": str(arquivo), "erro": str(erro)})
+        # imprime um log de progresso a cada 50 vagas processadas
         if indice % 50 == 0 or indice == len(arquivos):
             print(f"{indice}/{len(arquivos)} processados", flush=True)
 
+    # transforma a lista final de dicionários em um dataframe estruturado
     df_todos = pd.DataFrame(registros)
+    # cria os diretórios de saída caso eles não existam
     args.saida.parent.mkdir(parents=True, exist_ok=True)
+    # salva uma versão do csv contendo todas as vagas extraídas sem nenhum filtro
     saida_todos = args.saida.with_name(f"{args.saida.stem}_todos_htmls{args.saida.suffix}")
     df_todos.to_csv(saida_todos, index=False, encoding="utf-8-sig")
 
+    # cria um dataframe limpo tirando as vagas repetidas com base no id gerado e salva
     if not df_todos.empty:
         df_unicos = df_todos.drop_duplicates(subset=["job_id"], keep="last")
     else:
         df_unicos = df_todos
     df_unicos.to_csv(args.saida, index=False, encoding="utf-8-sig")
 
+    # salva as informações sobre arquivos que deram problema em um arquivo json de erros
     saida_erros = args.saida.with_name(f"{args.saida.stem}_erros.json")
     saida_erros.write_text(json.dumps(erros, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    # imprime um resumo final consolidando os números da extração no terminal
     print(f"{len(df_todos)} arquivos extraidos; {len(df_unicos)} vagas unicas; {len(erros)} erros.")
     print(f"CSV deduplicado: {args.saida}")
     print(f"CSV completo: {saida_todos}")
 
 
+# verifica se o arquivo tá rodando diretamente para inicializar o fluxo principal
 if __name__ == "__main__":
     main()
