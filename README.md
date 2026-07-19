@@ -4,7 +4,7 @@ link para o resumo do projeto: [Link](https://docs.google.com/document/d/1oVon4F
 
 ## Visualização de vagas por região
 
-[Abrir o painel interativo](https://htmlpreview.github.io/?https://github.com/vrsmic/observatorio-de-dados/blob/main/visualizacao_vagas/index.html)
+[Abrir o painel interativo](https://vrsmic.github.io/observatorio-de-dados/)
 
 O painel usa a base `vagas_extraidas/18-07-26_vagas_extraidas.csv` e apresenta:
 
