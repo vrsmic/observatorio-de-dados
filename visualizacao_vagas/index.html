@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Painel interativo de vagas por região do Brasil, incluindo oportunidades remotas.">
+  <title>Radar de vagas por região</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <script src="dados-vagas.js"></script>
+  <script src="brasil-ufs.js"></script>
+  <style>
+    :root {
+      --ink: #14201d;
+      --muted: #64706c;
+      --paper: #f4f1e9;
+      --card: #fffdf7;
+      --line: #dad7cc;
+      --forest: #143f37;
+      --teal: #087f73;
+      --mint: #b8dfd2;
+      --lime: #d8ee8f;
+      --sun: #ffc857;
+      --shadow: 0 18px 50px rgba(20, 63, 55, .08);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 85% -5%, rgba(216, 238, 143, .55), transparent 30rem),
+        var(--paper);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button, input, select { font: inherit; }
+    button, select { cursor: pointer; }
+    a { color: inherit; }
+
+    .shell { width: min(1440px, calc(100% - 40px)); margin: 0 auto; }
+    .topline { height: 8px; background: linear-gradient(90deg, var(--forest), var(--teal), var(--lime)); }
+    header { padding: 54px 0 34px; }
+    .eyebrow {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      color: var(--teal);
+      font-size: .76rem;
+      font-weight: 800;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before { content: ""; width: 28px; height: 2px; background: currentColor; }
+    h1 {
+      max-width: 880px;
+      margin: 13px 0 15px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(2.7rem, 6vw, 5.6rem);
+      font-weight: 500;
+      letter-spacing: -.055em;
+      line-height: .94;
+    }
+    .intro {
+      max-width: 720px;
+      margin: 0;
+      color: var(--muted);
+      font-size: clamp(1rem, 1.5vw, 1.16rem);
+      line-height: 1.65;
+    }
+    .dataset-tag {
+      display: inline-block;
+      margin-top: 22px;
+      padding: 9px 13px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 253, 247, .72);
+      color: var(--muted);
+      font-size: .78rem;
+    }
+
+    .filterbar {
+      position: sticky;
+      top: 12px;
+      z-index: 10;
+      display: grid;
+      grid-template-columns: 1.4fr repeat(3, minmax(150px, .65fr)) auto;
+      gap: 12px;
+      padding: 14px;
+      margin-bottom: 22px;
+      border: 1px solid rgba(218, 215, 204, .9);
+      border-radius: 18px;
+      background: rgba(255, 253, 247, .91);
+      box-shadow: 0 12px 35px rgba(20, 63, 55, .09);
+      backdrop-filter: blur(16px);
+    }
+    .field { position: relative; }
+    .field label {
+      display: block;
+      margin: 0 0 5px 2px;
+      color: var(--muted);
+      font-size: .67rem;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .field input, .field select {
+      width: 100%;
+      height: 43px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      outline: none;
+      background: #fff;
+      color: var(--ink);
+      padding: 0 12px;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .field input:focus, .field select:focus {
+      border-color: var(--teal);
+      box-shadow: 0 0 0 3px rgba(8, 127, 115, .12);
+    }
+    .reset {
+      align-self: end;
+      height: 43px;
+      padding: 0 18px;
+      border: 0;
+      border-radius: 11px;
+      background: var(--forest);
+      color: #fff;
+      font-weight: 750;
+    }
+
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 22px;
+    }
+    .kpi {
+      min-height: 145px;
+      padding: 21px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--card);
+      box-shadow: var(--shadow);
+    }
+    .kpi.remote { color: #fff; background: var(--forest); border-color: var(--forest); }
+    .kpi-label { color: var(--muted); font-size: .77rem; font-weight: 750; }
+    .remote .kpi-label { color: rgba(255,255,255,.64); }
+    .kpi-value {
+      display: block;
+      margin: 12px 0 4px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(2.35rem, 4vw, 3.75rem);
+      line-height: .9;
+      letter-spacing: -.05em;
+    }
+    .kpi-note { color: var(--muted); font-size: .74rem; }
+    .remote .kpi-note { color: var(--lime); }
+
+    .dashboard {
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(320px, .8fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+    .card {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: var(--card);
+      box-shadow: var(--shadow);
+    }
+    .card-head { padding: 23px 24px 0; }
+    .card-head h2 { margin: 0 0 6px; font-size: 1.12rem; }
+    .card-head p { margin: 0; color: var(--muted); font-size: .81rem; line-height: 1.5; }
+    #mapa { height: 570px; }
+    #regioes { height: 435px; }
+
+    .remote-callout {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 18px;
+      margin: 18px;
+      padding: 22px;
+      border-radius: 17px;
+      background: linear-gradient(125deg, var(--forest), #075f57);
+      color: #fff;
+    }
+    .remote-callout small { color: var(--mint); font-weight: 700; }
+    .remote-callout strong {
+      display: block;
+      margin-top: 4px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 2.4rem;
+      font-weight: 500;
+      line-height: 1;
+    }
+    .remote-callout button {
+      padding: 10px 14px;
+      border: 1px solid rgba(255,255,255,.32);
+      border-radius: 999px;
+      background: rgba(255,255,255,.09);
+      color: #fff;
+      font-size: .76rem;
+      font-weight: 750;
+    }
+
+    .list-card { margin: 18px 0 50px; }
+    .list-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 24px;
+      border-bottom: 1px solid var(--line);
+    }
+    .list-head h2 { margin: 0 0 6px; font-size: 1.12rem; }
+    .list-head p { margin: 0; color: var(--muted); font-size: .8rem; }
+    .download {
+      flex: none;
+      padding: 10px 14px;
+      border: 1px solid var(--forest);
+      border-radius: 10px;
+      background: transparent;
+      color: var(--forest);
+      font-weight: 750;
+    }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 14px 18px; border-bottom: 1px solid #ebe8df; text-align: left; }
+    th {
+      color: var(--muted);
+      background: #faf8f2;
+      font-size: .68rem;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    td { font-size: .82rem; }
+    td strong { display: block; max-width: 420px; }
+    td span { color: var(--muted); }
+    .pill {
+      display: inline-flex;
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: #e7f4ef;
+      color: var(--forest);
+      font-size: .69rem;
+      font-weight: 750;
+    }
+    .pill.remoto { background: var(--forest); color: #fff; }
+    .job-link { color: var(--teal); font-weight: 800; text-decoration: none; }
+    .empty { padding: 50px 20px; color: var(--muted); text-align: center; }
+
+    .method {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 14px;
+      align-items: start;
+      margin: 20px 0 42px;
+      padding: 18px 20px;
+      border: 1px dashed #b9b5a9;
+      border-radius: 14px;
+      color: var(--muted);
+      font-size: .77rem;
+      line-height: 1.55;
+    }
+    .method b { color: var(--ink); }
+    .method-mark { color: var(--teal); font-size: 1.3rem; font-weight: 900; }
+    footer { padding: 0 0 32px; color: var(--muted); font-size: .72rem; text-align: center; }
+
+    @media (max-width: 1000px) {
+      .filterbar { position: static; grid-template-columns: 1fr 1fr; }
+      .field.search { grid-column: 1 / -1; }
+      .kpis { grid-template-columns: 1fr 1fr; }
+      .dashboard { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 620px) {
+      .shell { width: min(100% - 24px, 1440px); }
+      header { padding-top: 38px; }
+      .filterbar, .kpis { grid-template-columns: 1fr; }
+      .field.search { grid-column: auto; }
+      .reset { width: 100%; }
+      #mapa { height: 470px; }
+      .list-head { align-items: stretch; flex-direction: column; }
+      .download { width: 100%; }
+      th:nth-child(4), td:nth-child(4) { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="topline"></div>
+  <header class="shell">
+    <div class="eyebrow">Observatório de dados</div>
+    <h1>Onde estão as oportunidades?</h1>
+    <p class="intro">Uma leitura territorial das vagas coletadas no Brasil. Explore estados e macrorregiões sem perder de vista as oportunidades remotas — tratadas como uma geografia própria.</p>
+    <span class="dataset-tag">Base: 18-07-26_vagas_extraidas.csv · coleta consolidada em 18/07/2026</span>
+  </header>
+
+  <main class="shell">
+    <section class="filterbar" aria-label="Filtros do painel">
+      <div class="field search">
+        <label for="busca">Buscar</label>
+        <input id="busca" type="search" placeholder="Cargo, empresa ou local...">
+      </div>
+      <div class="field">
+        <label for="modalidade">Modalidade</label>
+        <select id="modalidade">
+          <option value="">Todas</option>
+          <option>Presencial</option>
+          <option>Híbrido</option>
+          <option>Remoto</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="regiao">Região</label>
+        <select id="regiao">
+          <option value="">Todas + remoto</option>
+          <option>Norte</option>
+          <option>Nordeste</option>
+          <option>Centro-Oeste</option>
+          <option>Sudeste</option>
+          <option>Sul</option>
+          <option>Remoto</option>
+          <option>Local não identificado</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="estado">Estado</label>
+        <select id="estado"><option value="">Todos</option></select>
+      </div>
+      <button class="reset" id="limpar">Limpar filtros</button>
+    </section>
+
+    <section class="kpis" aria-label="Indicadores">
+      <article class="kpi">
+        <span class="kpi-label">Vagas no recorte</span>
+        <strong class="kpi-value" id="kpi-total">—</strong>
+        <span class="kpi-note">resultado dos filtros ativos</span>
+      </article>
+      <article class="kpi remote">
+        <span class="kpi-label">Vagas remotas</span>
+        <strong class="kpi-value" id="kpi-remoto">—</strong>
+        <span class="kpi-note" id="kpi-remoto-nota">—</span>
+      </article>
+      <article class="kpi">
+        <span class="kpi-label">Presenciais + híbridas</span>
+        <strong class="kpi-value" id="kpi-fisicas">—</strong>
+        <span class="kpi-note">distribuídas no mapa</span>
+      </article>
+      <article class="kpi">
+        <span class="kpi-label">UFs representadas</span>
+        <strong class="kpi-value" id="kpi-ufs">—</strong>
+        <span class="kpi-note">com vaga localizada no recorte</span>
+      </article>
+    </section>
+
+    <section class="dashboard">
+      <article class="card">
+        <div class="card-head">
+          <h2>Mapa das vagas com localização física</h2>
+          <p>Clique em uma UF para filtrar. Remotas não são forçadas a um estado e aparecem nos demais indicadores.</p>
+        </div>
+        <div id="mapa" role="img" aria-label="Mapa coroplético das vagas por unidade federativa"></div>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <h2>Distribuição por região</h2>
+          <p>As vagas remotas entram na comparação como categoria própria. Clique em uma barra para filtrar.</p>
+        </div>
+        <div id="regioes" role="img" aria-label="Gráfico das vagas por região"></div>
+        <div class="remote-callout">
+          <div>
+            <small>Oportunidades sem fronteira estadual</small>
+            <strong id="remote-callout-value">—</strong>
+          </div>
+          <button id="ver-remotas">Ver apenas remotas</button>
+        </div>
+      </article>
+    </section>
+
+    <section class="card list-card">
+      <div class="list-head">
+        <div>
+          <h2>Vagas do recorte</h2>
+          <p id="list-note">—</p>
+        </div>
+        <button class="download" id="baixar">Baixar recorte em CSV</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Vaga</th><th>Modalidade</th><th>Região / estado</th><th>Local anunciado</th><th>Link</th></tr></thead>
+          <tbody id="vagas-corpo"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <aside class="method">
+      <div class="method-mark">i</div>
+      <div><b>Como ler:</b> vagas presenciais e híbridas foram atribuídas à UF a partir do local anunciado. Vagas remotas permanecem em “Remoto”, mesmo quando o anúncio informa uma abrangência como Brasil ou América Latina. Anúncios físicos informados apenas como “Brasil” ficam em “Local não identificado”. A contagem representa anúncios únicos por <i>job_id</i>.</div>
+    </aside>
+  </main>
+
+  <footer>Observatório de Dados · Visualização exploratória de vagas</footer>
+
+  <script>
+    (() => {
+      const vagas = window.VAGAS_DATA || [];
+      const geojson = window.BRASIL_UFS;
+      const ordemRegioes = ["Norte", "Nordeste", "Centro-Oeste", "Sudeste", "Sul", "Remoto", "Local não identificado"];
+      const coresRegioes = {
+        "Norte": "#8fc6ae", "Nordeste": "#d8ee8f", "Centro-Oeste": "#ffc857",
+        "Sudeste": "#087f73", "Sul": "#4f8c83", "Remoto": "#143f37",
+        "Local não identificado": "#b7b4aa"
+      };
+      const els = Object.fromEntries([
+        "busca", "modalidade", "regiao", "estado", "limpar", "kpi-total", "kpi-remoto",
+        "kpi-remoto-nota", "kpi-fisicas", "kpi-ufs", "remote-callout-value", "ver-remotas",
+        "vagas-corpo", "list-note", "baixar"
+      ].map(id => [id, document.getElementById(id)]));
+      const mapa = document.getElementById("mapa");
+      const regioes = document.getElementById("regioes");
+      const numero = new Intl.NumberFormat("pt-BR");
+      let recorteAtual = vagas;
+
+      [...new Set(vagas.filter(v => v.uf).map(v => `${v.uf}|${v.estado}`))]
+        .sort((a, b) => a.localeCompare(b, "pt-BR"))
+        .forEach(item => {
+          const [uf, estado] = item.split("|");
+          els.estado.insertAdjacentHTML("beforeend", `<option value="${uf}">${estado} (${uf})</option>`);
+        });
+
+      function normalizar(valor) {
+        return String(valor || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      }
+
+      function escapar(valor) {
+        return String(valor || "").replace(/[&<>'"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;"}[c]));
+      }
+
+      function filtrar() {
+        const busca = normalizar(els.busca.value.trim());
+        return vagas.filter(v => {
+          const texto = normalizar(`${v.titulo} ${v.empresa} ${v.local} ${v.estado} ${v.regiao}`);
+          return (!busca || texto.includes(busca))
+            && (!els.modalidade.value || v.modalidade === els.modalidade.value)
+            && (!els.regiao.value || v.regiao === els.regiao.value)
+            && (!els.estado.value || v.uf === els.estado.value);
+        });
+      }
+
+      function renderMapa(recorte) {
+        const fisicas = recorte.filter(v => v.uf);
+        const contagem = Object.create(null);
+        fisicas.forEach(v => contagem[v.uf] = (contagem[v.uf] || 0) + 1);
+        const codigos = {"12":"AC", "27":"AL", "16":"AP", "13":"AM", "29":"BA", "23":"CE", "53":"DF", "32":"ES", "52":"GO", "21":"MA", "51":"MT", "50":"MS", "31":"MG", "15":"PA", "25":"PB", "41":"PR", "26":"PE", "22":"PI", "33":"RJ", "24":"RN", "43":"RS", "11":"RO", "14":"RR", "42":"SC", "35":"SP", "28":"SE", "17":"TO"};
+        const nomes = Object.fromEntries(vagas.filter(v => v.uf).map(v => [v.uf, v.estado]));
+        const maximo = Math.max(1, ...Object.values(contagem));
+
+        const misturar = (inicio, fim, t) => {
+          const ler = cor => cor.match(/[a-f\d]{2}/gi).map(x => parseInt(x, 16));
+          const [a, b] = [ler(inicio), ler(fim)];
+          return `rgb(${a.map((x, i) => Math.round(x + (b[i] - x) * t)).join(",")})`;
+        };
+        const cor = valor => valor === 0 ? "#e7e4db" : misturar("#cce5d9", "#075f57", Math.sqrt(valor / maximo));
+        const traces = geojson.features.map(feature => {
+          const uf = codigos[feature.properties.codarea];
+          const valor = contagem[uf] || 0;
+          const poligonos = feature.geometry.type === "Polygon"
+            ? [feature.geometry.coordinates]
+            : feature.geometry.coordinates;
+          const x = [], y = [];
+          poligonos.forEach(poligono => {
+            (poligono[0] || []).forEach(ponto => { x.push(ponto[0]); y.push(ponto[1]); });
+            x.push(null); y.push(null);
+          });
+          return {
+            type: "scatter", mode: "lines", x, y,
+            fill: "toself", fillcolor: cor(valor),
+            line: {color: "#fffdf7", width: 1.15},
+            hoveron: "fills", name: uf,
+            meta: [uf, nomes[uf] || uf, valor],
+            hovertemplate: `<b>${nomes[uf] || uf} (${uf})</b><br>${numero.format(valor)} vagas<extra></extra>`,
+            showlegend: false
+          };
+        });
+
+        Plotly.react(mapa, traces, {
+          margin: {l: 10, r: 10, t: 20, b: 10},
+          paper_bgcolor: "rgba(0,0,0,0)",
+          plot_bgcolor: "rgba(0,0,0,0)",
+          xaxis: {visible: false, range: [-75, -33], fixedrange: true, constrain: "domain"},
+          yaxis: {visible: false, range: [-35, 7], fixedrange: true, scaleanchor: "x", scaleratio: 1},
+          annotations: [{x: 1, y: 1.025, xref: "paper", yref: "paper", text: "mais escuro = mais vagas", showarrow: false, xanchor: "right", font: {size: 10, color: "#64706c"}}],
+          font: {family: "Inter, system-ui, sans-serif", color: "#14201d"},
+          dragmode: false
+        }, {displayModeBar: false, responsive: true});
+
+        mapa.removeAllListeners?.("plotly_click");
+        mapa.on("plotly_click", evento => {
+          const uf = evento.points?.[0]?.data?.meta?.[0];
+          if (uf) { els.estado.value = uf; els.regiao.value = ""; atualizar(); }
+        });
+      }
+
+      function renderRegioes(recorte) {
+        const contagem = Object.fromEntries(ordemRegioes.map(r => [r, 0]));
+        recorte.forEach(v => contagem[v.regiao] = (contagem[v.regiao] || 0) + 1);
+        const categorias = [...ordemRegioes].reverse();
+        Plotly.react(regioes, [{
+          type: "bar",
+          orientation: "h",
+          y: categorias,
+          x: categorias.map(r => contagem[r] || 0),
+          marker: {color: categorias.map(r => coresRegioes[r]), line: {width: 0}},
+          text: categorias.map(r => numero.format(contagem[r] || 0)),
+          textposition: "outside",
+          cliponaxis: false,
+          hovertemplate: "<b>%{y}</b><br>%{x:,.0f} vagas<extra></extra>"
+        }], {
+          margin: {l: 125, r: 48, t: 22, b: 36},
+          paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+          font: {family: "Inter, system-ui, sans-serif", color: "#14201d", size: 11},
+          xaxis: {showgrid: true, gridcolor: "#ebe8df", zeroline: false, rangemode: "tozero", fixedrange: true},
+          yaxis: {showgrid: false, fixedrange: true},
+          bargap: .34,
+          showlegend: false
+        }, {displayModeBar: false, responsive: true});
+
+        regioes.removeAllListeners?.("plotly_click");
+        regioes.on("plotly_click", evento => {
+          const regiao = evento.points?.[0]?.y;
+          if (regiao) { els.regiao.value = regiao; els.estado.value = ""; atualizar(); }
+        });
+      }
+
+      function renderTabela(recorte) {
+        const limite = 80;
+        els["list-note"].textContent = recorte.length > limite
+          ? `${numero.format(recorte.length)} vagas encontradas · exibindo as primeiras ${limite}`
+          : `${numero.format(recorte.length)} vagas encontradas`;
+        if (!recorte.length) {
+          els["vagas-corpo"].innerHTML = '<tr><td class="empty" colspan="5">Nenhuma vaga corresponde aos filtros.</td></tr>';
+          return;
+        }
+        els["vagas-corpo"].innerHTML = recorte.slice(0, limite).map(v => `
+          <tr>
+            <td><strong>${escapar(v.titulo)}</strong><span>${escapar(v.empresa)}</span></td>
+            <td><span class="pill ${v.modalidade === "Remoto" ? "remoto" : ""}">${escapar(v.modalidade)}</span></td>
+            <td><strong>${escapar(v.regiao)}</strong><span>${v.uf ? escapar(`${v.estado} · ${v.uf}`) : escapar(v.estado)}</span></td>
+            <td>${escapar(v.local)}</td>
+            <td>${v.url ? `<a class="job-link" href="${escapar(v.url)}" target="_blank" rel="noopener">Abrir ↗</a>` : "—"}</td>
+          </tr>`).join("");
+      }
+
+      function atualizar() {
+        recorteAtual = filtrar();
+        const remotas = recorteAtual.filter(v => v.regiao === "Remoto").length;
+        const fisicas = recorteAtual.filter(v => v.regiao !== "Remoto").length;
+        const noMapa = recorteAtual.filter(v => v.uf).length;
+        const ufs = new Set(recorteAtual.filter(v => v.uf).map(v => v.uf)).size;
+        els["kpi-total"].textContent = numero.format(recorteAtual.length);
+        els["kpi-remoto"].textContent = numero.format(remotas);
+        els["kpi-remoto-nota"].textContent = recorteAtual.length ? `${(100 * remotas / recorteAtual.length).toFixed(1).replace(".", ",")}% do recorte` : "0% do recorte";
+        els["kpi-fisicas"].textContent = numero.format(fisicas);
+        els["kpi-fisicas"].nextElementSibling.textContent = `${numero.format(noMapa)} no mapa · ${numero.format(fisicas - noMapa)} sem UF`;
+        els["kpi-ufs"].textContent = numero.format(ufs);
+        els["remote-callout-value"].textContent = numero.format(remotas);
+        renderMapa(recorteAtual);
+        renderRegioes(recorteAtual);
+        renderTabela(recorteAtual);
+      }
+
+      function baixarRecorte() {
+        const cabecalho = ["job_id","titulo","empresa","modalidade","regiao","uf","estado","local","nivel","tipo_contrato","url_vaga"];
+        const chave = {job_id:"id", tipo_contrato:"contrato", url_vaga:"url"};
+        const campo = valor => `"${String(valor || "").replace(/"/g, '""')}"`;
+        const linhas = [cabecalho.join(","), ...recorteAtual.map(v => cabecalho.map(c => campo(v[chave[c] || c])).join(","))];
+        const blob = new Blob(["\ufeff" + linhas.join("\n")], {type: "text/csv;charset=utf-8"});
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "recorte_vagas_por_regiao.csv";
+        link.click();
+        URL.revokeObjectURL(link.href);
+      }
+
+      [els.busca, els.modalidade, els.regiao, els.estado].forEach(el => el.addEventListener(el === els.busca ? "input" : "change", () => {
+        if (el === els.regiao && els.regiao.value) els.estado.value = "";
+        if (el === els.estado && els.estado.value) els.regiao.value = "";
+        atualizar();
+      }));
+      els.limpar.addEventListener("click", () => {
+        els.busca.value = els.modalidade.value = els.regiao.value = els.estado.value = "";
+        atualizar();
+      });
+      els["ver-remotas"].addEventListener("click", () => {
+        els.modalidade.value = "Remoto"; els.regiao.value = "Remoto"; els.estado.value = ""; atualizar();
+      });
+      els.baixar.addEventListener("click", baixarRecorte);
+      atualizar();
+    })();
+  </script>
+</body>
+</html>
